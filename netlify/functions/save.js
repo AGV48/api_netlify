@@ -1,18 +1,41 @@
 const { Pool } = require("pg");
 
 const pool = new Pool({
-  connectionString: 'postgresql://AGV:TtfvlRibHh93@ep-round-tree-a551uewg-pooler.us-east-2.aws.neon.tech/practica_cpi?sslmode=require&channel_binding=require',
+  connectionString: 'postgresql://AGV:TtfvlRibHh93@ep-round-tree-a551uewg-pooler.us-east-2.aws.neon.tech/practica_cpi?sslmode=require',
   ssl: { rejectUnauthorized: false },
 });
 
+// Crear tabla si no existe al arrancar
+const initDB = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clientes (
+      id                   SERIAL PRIMARY KEY,
+      codigo_sap           VARCHAR(50),
+      identificador_fiscal VARCHAR(100),
+      nombre               VARCHAR(255),
+      telefono             VARCHAR(50),
+      direccion            VARCHAR(500),
+      pais                 VARCHAR(10),
+      creado_en            TIMESTAMP DEFAULT NOW()
+    )
+  `);
+};
+
 exports.handler = async (event) => {
 
-
-  // ── Debug: loguear todo lo que llega ──────────────────────────
-  console.log("METHOD:", event.httpMethod);
-  console.log("HEADERS:", JSON.stringify(event.headers));
-  console.log("BODY RAW:", event.body);
-  console.log("IS BASE64:", event.isBase64Encoded);
+  // ── 1. Probar conexión y crear tabla ─────────────────────────
+  try {
+    await initDB();
+  } catch (dbInitError) {
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        error: "Fallo al conectar con la base de datos",
+        detalle: dbInitError.message,
+      }),
+    };
+  }
 
   if (event.httpMethod !== "POST") {
     return {
@@ -22,29 +45,20 @@ exports.handler = async (event) => {
     };
   }
 
-  // ── Validar que el body no esté vacío ─────────────────────────
   if (!event.body || event.body.trim() === "") {
     return {
       statusCode: 400,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        error: "Body vacío o nulo",
-        method: event.httpMethod,
-        headers: event.headers,
-      }),
+      body: JSON.stringify({ error: "Body vacío o nulo" }),
     };
   }
 
   try {
-    // ── Decodificar si viene en base64 ────────────────────────────
-    let rawBody = event.body;
-    if (event.isBase64Encoded) {
-      rawBody = Buffer.from(event.body, "base64").toString("utf-8");
-    }
+    // ── 2. Parsear body ───────────────────────────────────────────
+    let rawBody = event.isBase64Encoded
+      ? Buffer.from(event.body, "base64").toString("utf-8")
+      : event.body;
 
-    console.log("BODY PROCESADO:", rawBody);
-
-    // ── Parsear JSON ──────────────────────────────────────────────
     let raw;
     try {
       raw = JSON.parse(rawBody);
@@ -55,30 +69,20 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           error: "Body no es JSON válido",
           bodyRecibido: rawBody,
-          parseError: parseError.message,
         }),
       };
     }
 
-    console.log("JSON PARSEADO:", JSON.stringify(raw));
-
-    // ── Extraer objeto anidado si existe ──────────────────────────
+    // ── 3. Extraer objeto anidado ─────────────────────────────────
     const cliente = raw.Prueba_Capa_Request || raw;
 
-    console.log("CLIENTE:", JSON.stringify(cliente));
-
-    // ── Validar campos requeridos ─────────────────────────────────
+    // ── 4. Validar campos ─────────────────────────────────────────
     const camposRequeridos = [
-      "codigo_sap",
-      "identificador_fiscal",
-      "Nombre",
-      "Telefono",
-      "Direccion",
-      "Pais",
+      "codigo_sap", "identificador_fiscal",
+      "Nombre", "Telefono", "Direccion", "Pais",
     ];
 
-    const camposFaltantes = camposRequeridos.filter((campo) => !cliente[campo]);
-
+    const camposFaltantes = camposRequeridos.filter((c) => !cliente[c]);
     if (camposFaltantes.length > 0) {
       return {
         statusCode: 400,
@@ -91,11 +95,11 @@ exports.handler = async (event) => {
       };
     }
 
-    // ── Insertar en PostgreSQL ────────────────────────────────────
+    // ── 5. Insertar ───────────────────────────────────────────────
     const result = await pool.query(
       `INSERT INTO clientes 
-        (codigo_sap, identificador_fiscal, nombre, telefono, direccion, pais, creado_en) 
-       VALUES ($1, $2, $3, $4, $5, $6, NOW()) 
+        (codigo_sap, identificador_fiscal, nombre, telefono, direccion, pais, creado_en)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
        RETURNING id`,
       [
         cliente.codigo_sap,
@@ -118,12 +122,11 @@ exports.handler = async (event) => {
     };
 
   } catch (error) {
-    console.error("ERROR:", error.message, error.stack);
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        error: "Error interno del servidor",
+        error: "Error al insertar",
         detalle: error.message,
       }),
     };

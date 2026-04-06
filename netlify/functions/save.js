@@ -7,31 +7,44 @@ const pool = new Pool({
 
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
+    return {
+      statusCode: 405,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ error: "Method Not Allowed" }),
+    };
   }
 
   try {
-    // ✅ Manejo seguro del body
-    let data;
+    // ── 1. Parsear body ──────────────────────────────────────────
+    let raw;
     try {
-      data = JSON.parse(event.body);
+      raw = JSON.parse(event.body);
     } catch (parseError) {
       return {
         statusCode: 400,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          error: "Body no es JSON válido", 
-          bodyRecibido: event.body  // ← para debug
+        body: JSON.stringify({
+          error: "Body no es JSON válido",
+          bodyRecibido: event.body,
         }),
       };
     }
 
+    // ── 2. Extraer objeto anidado si existe ──────────────────────
+    // Soporta: {"Prueba_Capa_Request":{...}}  ó  {...} directo
+    const cliente = raw.Prueba_Capa_Request || raw;
+
+    // ── 3. Validar campos requeridos ─────────────────────────────
     const camposRequeridos = [
-      "codigo_sap", "identificador_fiscal",
-      "Nombre", "Telefono", "Direccion", "Pais",
+      "codigo_sap",
+      "identificador_fiscal",
+      "Nombre",
+      "Telefono",
+      "Direccion",
+      "Pais",
     ];
 
-    const camposFaltantes = camposRequeridos.filter((campo) => !data[campo]);
+    const camposFaltantes = camposRequeridos.filter((campo) => !cliente[campo]);
 
     if (camposFaltantes.length > 0) {
       return {
@@ -40,41 +53,46 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           error: "Faltan campos requeridos",
           campos_faltantes: camposFaltantes,
-          dataRecibida: data,  // ← para debug
+          dataRecibida: cliente,
         }),
       };
     }
 
+    // ── 4. Insertar en PostgreSQL ────────────────────────────────
     const result = await pool.query(
       `INSERT INTO clientes 
         (codigo_sap, identificador_fiscal, nombre, telefono, direccion, pais, creado_en) 
        VALUES ($1, $2, $3, $4, $5, $6, NOW()) 
        RETURNING id`,
       [
-        data.codigo_sap,
-        data.identificador_fiscal,
-        data.Nombre,
-        data.Telefono,
-        data.Direccion,
-        data.Pais,
+        cliente.codigo_sap,
+        cliente.identificador_fiscal,
+        cliente.Nombre,
+        cliente.Telefono,
+        cliente.Direccion,
+        cliente.Pais,
       ]
     );
 
+    // ── 5. Respuesta exitosa ─────────────────────────────────────
     return {
       statusCode: 201,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ success: true, id: result.rows[0].id }),
+      body: JSON.stringify({
+        success: true,
+        id: result.rows[0].id,
+        mensaje: "Cliente insertado correctamente",
+      }),
     };
 
   } catch (error) {
-    // ✅ Error detallado para debug
+    // ── 6. Error detallado ───────────────────────────────────────
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         error: "Error interno del servidor",
-        detalle: error.message,  // ← muestra el error real
-        stack: error.stack
+        detalle: error.message,
       }),
     };
   }

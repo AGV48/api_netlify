@@ -1,25 +1,12 @@
 const { Pool } = require("pg");
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: 'postgresql://AGV:TtfvlRibHh93@ep-round-tree-a551uewg-pooler.us-east-2.aws.neon.tech/practica_cpi?sslmode=require&channel_binding=require',
   ssl: { rejectUnauthorized: false },
 });
 
 exports.handler = async (event) => {
-  
-  // ── Diagnóstico de variables de entorno ──────────────────────
-  console.log("DATABASE_URL definida:", !!process.env.DATABASE_URL);
-  console.log("NODE_VERSION:", process.version);
 
-  if (!process.env.DATABASE_URL) {
-    return {
-      statusCode: 500,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        error: "DATABASE_URL no está definida en las variables de entorno"
-      }),
-    };
-  }
 
   // ── Debug: loguear todo lo que llega ──────────────────────────
   console.log("METHOD:", event.httpMethod);

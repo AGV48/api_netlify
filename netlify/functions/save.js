@@ -6,6 +6,13 @@ const pool = new Pool({
 });
 
 exports.handler = async (event) => {
+  
+  // ── Debug: loguear todo lo que llega ──────────────────────────
+  console.log("METHOD:", event.httpMethod);
+  console.log("HEADERS:", JSON.stringify(event.headers));
+  console.log("BODY RAW:", event.body);
+  console.log("IS BASE64:", event.isBase64Encoded);
+
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
@@ -14,27 +21,52 @@ exports.handler = async (event) => {
     };
   }
 
+  // ── Validar que el body no esté vacío ─────────────────────────
+  if (!event.body || event.body.trim() === "") {
+    return {
+      statusCode: 400,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        error: "Body vacío o nulo",
+        method: event.httpMethod,
+        headers: event.headers,
+      }),
+    };
+  }
+
   try {
-    // ── 1. Parsear body ──────────────────────────────────────────
+    // ── Decodificar si viene en base64 ────────────────────────────
+    let rawBody = event.body;
+    if (event.isBase64Encoded) {
+      rawBody = Buffer.from(event.body, "base64").toString("utf-8");
+    }
+
+    console.log("BODY PROCESADO:", rawBody);
+
+    // ── Parsear JSON ──────────────────────────────────────────────
     let raw;
     try {
-      raw = JSON.parse(event.body);
+      raw = JSON.parse(rawBody);
     } catch (parseError) {
       return {
         statusCode: 400,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           error: "Body no es JSON válido",
-          bodyRecibido: event.body,
+          bodyRecibido: rawBody,
+          parseError: parseError.message,
         }),
       };
     }
 
-    // ── 2. Extraer objeto anidado si existe ──────────────────────
-    // Soporta: {"Prueba_Capa_Request":{...}}  ó  {...} directo
+    console.log("JSON PARSEADO:", JSON.stringify(raw));
+
+    // ── Extraer objeto anidado si existe ──────────────────────────
     const cliente = raw.Prueba_Capa_Request || raw;
 
-    // ── 3. Validar campos requeridos ─────────────────────────────
+    console.log("CLIENTE:", JSON.stringify(cliente));
+
+    // ── Validar campos requeridos ─────────────────────────────────
     const camposRequeridos = [
       "codigo_sap",
       "identificador_fiscal",
@@ -58,7 +90,7 @@ exports.handler = async (event) => {
       };
     }
 
-    // ── 4. Insertar en PostgreSQL ────────────────────────────────
+    // ── Insertar en PostgreSQL ────────────────────────────────────
     const result = await pool.query(
       `INSERT INTO clientes 
         (codigo_sap, identificador_fiscal, nombre, telefono, direccion, pais, creado_en) 
@@ -74,7 +106,6 @@ exports.handler = async (event) => {
       ]
     );
 
-    // ── 5. Respuesta exitosa ─────────────────────────────────────
     return {
       statusCode: 201,
       headers: { "Content-Type": "application/json" },
@@ -86,7 +117,7 @@ exports.handler = async (event) => {
     };
 
   } catch (error) {
-    // ── 6. Error detallado ───────────────────────────────────────
+    console.error("ERROR:", error.message, error.stack);
     return {
       statusCode: 500,
       headers: { "Content-Type": "application/json" },

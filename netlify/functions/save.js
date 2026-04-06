@@ -7,6 +7,20 @@ const pool = new Pool({
 
 exports.handler = async (event) => {
   
+  // ── Diagnóstico de variables de entorno ──────────────────────
+  console.log("DATABASE_URL definida:", !!process.env.DATABASE_URL);
+  console.log("NODE_VERSION:", process.version);
+
+  if (!process.env.DATABASE_URL) {
+    return {
+      statusCode: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        error: "DATABASE_URL no está definida en las variables de entorno"
+      }),
+    };
+  }
+
   // ── Debug: loguear todo lo que llega ──────────────────────────
   console.log("METHOD:", event.httpMethod);
   console.log("HEADERS:", JSON.stringify(event.headers));
